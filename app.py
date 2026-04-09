@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash,check_password_hash
+from recommendation import target
 import random
 import time
 import sqlite3
@@ -29,9 +30,10 @@ def generate_otp():
 def home():
     return render_template("index.html")
 
+
 @app.route("/signup")
 def signup_page():
-    return render_template("signup.html") 
+    return render_template("signup.html")
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -45,7 +47,7 @@ def login():
         conn = sqlite3.connect('fintrackai.db')
         cur = conn.cursor()
         cur.execute("SELECT EMAIL,PASSWORD_HASH FROM USER")
-        x = dict( cur.fetchall())
+        x = dict(cur.fetchall())
 
         if user_email in x:
             # Check hashed password
@@ -132,6 +134,191 @@ def income():
 
     except Exception as e:
         return render_template("income.html", error=f"Error: {str(e)}")
+    
+@app.route("/expense", methods=["GET", "POST"])
+def expense():
+    if request.method == "GET":
+        return render_template("expense.html")
+
+    email = request.form.get("email", "").strip()
+    groceries = request.form.get("groceries", "").strip()
+    travel = request.form.get("travel", "").strip()
+    medfit = request.form.get("medfit", "").strip()
+    lep = request.form.get("lep", "").strip()
+    monthly_rent = request.form.get("monthly_rent", "").strip()
+    m_bills = request.form.get("m_bills", "").strip()
+    fashion = request.form.get("fashion", "").strip()
+    entertainment = request.form.get("entertainment", "").strip()
+    education = request.form.get("education", "").strip()
+    emsaving = request.form.get("emsaving", "").strip()
+    miscellaneous = request.form.get("miscellaneous", "").strip()
+
+    if not email:
+        return render_template("expense.html", error="Email is required.")
+
+    try:
+        conn = sqlite3.connect("fintrackai.db")
+        cur = conn.cursor()
+
+        cur.execute("SELECT USER_ID FROM USER WHERE EMAIL = ?", (email,))
+        user_row = cur.fetchone()
+
+        if not user_row:
+            conn.close()
+            return render_template("expense.html", error="No user found with this email.")
+
+        user_id = user_row[0]
+        expense_id = cur.execute("SELECT max(expense_ID) FROM expensePROFILE")
+        x = cur.fetchall()
+        if x[0][0]==None:
+            x = 1
+        else:
+            x = x[0][0]+1
+
+        print(x,user_id,email,groceries,travel,medfit,lep,monthly_rent,m_bills,fashion,entertainment,education,emsaving,miscellaneous)
+        cur.execute("""
+            INSERT INTO EXPENSEPROFILE (
+                Expense_ID,
+                USER_ID,
+                GROCERIES,
+                TRAVEL,
+                MEDFIT,
+                LEP,
+                MONTHLY_RENT,
+                M_BILLS,
+                FASHION,
+                ENTERTAINMENT,
+                EDUCATION,
+                EMSAVING,
+                MISCELLANEOUS,
+                CREATED_AT
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+        """, (
+            x,
+            int(user_id),
+            float(groceries),
+            float(travel),
+            float(medfit),
+            float(lep),
+            float(monthly_rent),
+            float(m_bills),
+            float(fashion),
+            float(entertainment),
+            float(education),
+            float(emsaving),
+            float(miscellaneous),
+            datetime.datetime.now()
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return render_template("expense.html", success="Expense profile saved successfully.")
+
+    except sqlite3.IntegrityError as e:
+        return render_template("expense.html", error=f"Database integrity error: {str(e)}")
+    except ValueError:
+        return render_template("expense.html", error="Please enter valid numeric values in all amount fields.")
+    except Exception as e:
+        return render_template("expense.html", error=f"Error: {str(e)}")
+    
+@app.route("/goals", methods=["GET", "POST"])
+def goals():
+    if request.method == "GET":
+        return render_template("goals.html")
+
+    try:
+        email = request.form.get("email", "").strip()
+        goal_name = request.form.get("goal_name", "").strip()
+        goal_amount = request.form.get("goal_amount", "").strip()
+        start_date = request.form.get("start_date", "").strip()
+        end_date = request.form.get("end_date", "").strip()
+        goal_status = request.form.get("goal_status", "").strip()
+
+        if not email or not goal_name or not goal_amount or not start_date or not end_date or not goal_status:
+            return jsonify({"success": False, "error": "All fields are required."})
+
+        goal_amount = float(goal_amount)
+
+
+
+        # Calculate duration in months
+       
+
+        ob = target(email)
+        res = ob.monthly_target(goal_amount)
+
+
+        monthly_target = res[0]
+        duration_in_month = res[1]
+
+        conn = sqlite3.connect("fintrackai.db")
+        cur = conn.cursor()
+
+        cur.execute("SELECT USER_ID FROM USER WHERE EMAIL = ?", (email,))
+        user = cur.fetchone()
+
+        if not user:
+            conn.close()
+            return jsonify({"success": False, "error": "User not found."})
+
+        user_id = user[0]
+
+        # Generate GOALID
+        goal_id = random.randint(10000, 99999)
+
+        # Optional: avoid duplicate GOALID
+        while True:
+            cur.execute("SELECT 1 FROM GOALS WHERE GOALID = ?", (goal_id,))
+            existing = cur.fetchone()
+            if not existing:
+                break
+            goal_id = random.randint(10000, 99999)
+
+        now = datetime.datetime.now()
+
+        cur.execute("""
+            INSERT INTO GOALS (
+                GOALID,
+                USER_ID,
+                GOAL_NAME,
+                START_DATE,
+                END_DATE,
+                GOAL_AMOUNT,
+                MONTHLY_SAVING_T,
+                GOAL_STATUS,
+                CREATED_AT,
+                UPDATED_AT
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            goal_id,
+            user_id,
+            goal_name,
+            start_date,
+            end_date,
+            goal_amount,
+            monthly_target,
+            goal_status,
+            now,
+            now
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "monthlytarget": monthly_target,
+            "durationinmonth": duration_in_month
+        })
+
+    except ValueError:
+        return jsonify({"success": False, "error": "Please enter valid numeric values and valid dates."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route("/send-otp", methods=["POST"])
 def send_otp():
     try:
@@ -154,7 +341,7 @@ def send_otp():
 
         if len(password) < 6:
             return jsonify({"success": False, "message": "Password must be at least 6 characters."}), 400
-
+        print(email,reg)
         if email in reg:
             return jsonify({"success": False, "message": "User already registered with this email."}), 400
 
@@ -173,13 +360,14 @@ def send_otp():
         print("\n" + "=" * 60)
         print(f"CORRECT OTP for {email}: {otp}")
         print("=" * 60 + "\n")
+        sender_email = "inikolagpt@gmail.com"
+        app_password = "aosk uoaf ivax bkuz"
 
-        sender_email = "vinayjallamruh@gmail.com"
-        app_password = "vcki lrsa vwgk aans"
         subject = "OTP Verification"
         body = f"Your OTP is: {otp}"
         message = f"Subject: {subject}\nTo: {email}\nFrom: {sender_email}\n\n{body}"
-        server  =smtplib.SMTP("smtp.gmail.com",587)
+
+        server = smtplib.SMTP("smtp.gmail.com",587)
         server.starttls()
         server.login(sender_email,app_password)
         server.sendmail(sender_email,email,message)
@@ -191,8 +379,7 @@ def send_otp():
         }), 200
 
     except Exception as e:
-        print("ERROR SEND OTP:", str(e))
-        return jsonify({"success": False, "message": "Server error"}), 500
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 
 @app.route("/verify-otp", methods=["POST"])
@@ -227,45 +414,27 @@ def verify_otp():
             "password": hashed_password,
             "registered_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }
-
+        print(registered_users)
         conn = sqlite3.connect("fintrackai.db")
         cur = conn.cursor()
-
-        # FIX: handle empty table safely
         cur.execute("select max(user_id) from user")
-        x1 = cur.fetchone()
-        user_id = (x1[0] or 0) + 1
-
-        cur.execute('''
-            INSERT INTO USER VALUES(?,?,?,?,?,?)
-        ''', (
-            user_id,
-            registered_users[email]['name'],
-            registered_users[email]['gender'],
-            registered_users[email]['email'],
-            registered_users[email]['password'],
-            datetime.datetime.now()
-        ))
+        x1 = cur.fetchall()
+        cur.execute(f'''
+            INSERT INTO USER VALUES({x1[0][0]+1},"{registered_users[email]['name']}",
+            "{registered_users[email]['gender']}","{registered_users[email]['email']}",
+            "{registered_users[email]['password']}","{datetime.datetime.now()}")
+            ''')
         conn.commit()
-
-        # FIX: handle empty table safely
+        
+        print(pending_users)
         cur.execute("select max(otp_id) from VERIFICATION")
-        x2 = cur.fetchone()
-        otp_id = (x2[0] or 0) + 1
-
-        cur.execute('''
-            INSERT INTO VERIFICATION VALUES(?,?,?,?,?,?)
-        ''', (
-            otp_id,
-            user_id,
-            user_data['otp'],
-            user_data['expires_at'],
-            datetime.datetime.now(),
-            "VERIFIED"
-        ))
+        x2 = cur.fetchall()
+        cur.execute(f'''
+            INSERT INTO VERIFICATION VALUES({x2[0][0]+1},{x1[0][0]+1},
+            {pending_users[email]['otp']},"{pending_users[email]['expires_at']}",
+            "{datetime.datetime.now()}","VERIFIED")
+            ''')
         conn.commit()
-
-        print("REGISTERED USERS:", registered_users)
 
         del pending_users[email]
 
@@ -275,8 +444,7 @@ def verify_otp():
         }), 200
 
     except Exception as e:
-        print("ERROR VERIFY OTP:", str(e))
-        return jsonify({"success": False, "message": "Server error"}), 500
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 
 @app.route("/users", methods=["GET"])
@@ -288,4 +456,4 @@ def users():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True,host = "0.0.0.0",port = 5050)
